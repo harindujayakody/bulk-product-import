@@ -7,6 +7,7 @@ function App() {
     try {
       const savedProducts = localStorage.getItem('woocommerce_products');
       const savedHistory = localStorage.getItem('woocommerce_history');
+      const savedCategories = localStorage.getItem('woocommerce_categories');
       
       return {
         products: savedProducts ? JSON.parse(savedProducts) : [
@@ -31,20 +32,39 @@ function App() {
             product: 'Classic Cotton T-Shirt (TEE-001)',
             timestamp: new Date().toLocaleString()
           }
+        ],
+        categories: savedCategories ? JSON.parse(savedCategories) : [
+          'Clothing > T-Shirts',
+          'Clothing > Shirts', 
+          'Clothing > Pants',
+          'Electronics > Phones',
+          'Electronics > Laptops',
+          'Home & Garden > Furniture',
+          'Home & Garden > Plants',
+          'Sports > Fitness',
+          'Sports > Yoga',
+          'Books > Technology',
+          'Books > Fiction',
+          'Food & Beverage > Coffee',
+          'Food & Beverage > Tea',
+          'Accessories > Wallets',
+          'Accessories > Bags'
         ]
       };
     } catch (error) {
       console.error('Error loading data:', error);
-      return { products: [], history: [] };
+      return { products: [], history: [], categories: [] };
     }
   };
 
   const initialData = loadData();
   const [products, setProducts] = useState(initialData.products);
   const [history, setHistory] = useState(initialData.history);
+  const [categories, setCategories] = useState(initialData.categories);
   const [showHistory, setShowHistory] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [editingProduct, setEditingProduct] = useState(null);
+  const [categoryMode, setCategoryMode] = useState('select'); // 'select' or 'custom'
   const [formData, setFormData] = useState({
     sku: '',
     name: '',
@@ -66,6 +86,16 @@ function App() {
   useEffect(() => {
     localStorage.setItem('woocommerce_history', JSON.stringify(history));
   }, [history]);
+
+  useEffect(() => {
+    localStorage.setItem('woocommerce_categories', JSON.stringify(categories));
+  }, [categories]);
+
+  const addToCategories = (newCategory) => {
+    if (newCategory && newCategory.trim() && !categories.includes(newCategory.trim())) {
+      setCategories(prev => [...prev, newCategory.trim()].sort());
+    }
+  };
 
   const addToHistory = (action, productName, sku = '') => {
     const historyItem = {
@@ -92,6 +122,7 @@ function App() {
     });
     setIsEditing(false);
     setEditingProduct(null);
+    setCategoryMode('select');
   };
 
   const handleInputChange = (e) => {
@@ -102,11 +133,31 @@ function App() {
     }));
   };
 
+  const handleCategoryChange = (e) => {
+    const value = e.target.value;
+    if (value === 'custom') {
+      setCategoryMode('custom');
+      setFormData(prev => ({
+        ...prev,
+        categories: ''
+      }));
+    } else {
+      setCategoryMode('select');
+      setFormData(prev => ({
+        ...prev,
+        categories: value
+      }));
+    }
+  };
+
   const handleSubmit = () => {
     if (!formData.sku || !formData.name || !formData.price) {
       alert('Please fill in SKU, Name, and Price (required fields)');
       return;
     }
+
+    // Add category to the categories list if it's new
+    addToCategories(formData.categories);
 
     if (isEditing) {
       setProducts(prev => prev.map(product => 
@@ -131,6 +182,12 @@ function App() {
     setFormData(product);
     setEditingProduct(product);
     setIsEditing(true);
+    // Set category mode based on whether the category exists in our list
+    if (categories.includes(product.categories)) {
+      setCategoryMode('select');
+    } else {
+      setCategoryMode('custom');
+    }
   };
 
   const handleDelete = (id) => {
@@ -159,6 +216,88 @@ function App() {
     if (window.confirm('Are you sure you want to clear the history? This action cannot be undone!')) {
       setHistory([]);
     }
+  };
+
+  const clearCategories = () => {
+    if (categories.length === 0) {
+      alert('No categories to clear!');
+      return;
+    }
+    if (window.confirm(`Are you sure you want to clear all ${categories.length} saved categories? This won't affect existing products.`)) {
+      setCategories([]);
+      addToHistory('Cleared Categories', `${categories.length} categories`);
+    }
+  };
+
+  const exportCategories = () => {
+    if (categories.length === 0) {
+      alert('No categories to export!');
+      return;
+    }
+
+    const content = categories.join('\n');
+    const blob = new Blob([content], { type: 'text/plain' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `woocommerce-categories-${new Date().toISOString().split('T')[0]}.txt`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    window.URL.revokeObjectURL(url);
+
+    addToHistory('Exported Categories', `${categories.length} categories to text file`);
+  };
+
+  const handleFileUpload = (event) => {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    if (!file.name.endsWith('.txt')) {
+      alert('Please select a .txt file');
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const content = e.target.result;
+        const newCategories = content
+          .split('\n')
+          .map(line => line.trim())
+          .filter(line => line.length > 0)
+          .filter(line => !line.startsWith('#')); // Allow comments
+
+        if (newCategories.length === 0) {
+          alert('No valid categories found in the file');
+          return;
+        }
+
+        const action = window.confirm(
+          `Found ${newCategories.length} categories in the file.\n\n` +
+          `Click OK to REPLACE current categories\n` +
+          `Click Cancel to ADD to current categories`
+        );
+
+        if (action) {
+          // Replace
+          setCategories([...new Set(newCategories)].sort());
+          addToHistory('Imported Categories (Replace)', `${newCategories.length} categories from ${file.name}`);
+        } else {
+          // Add/Merge
+          const merged = [...new Set([...categories, ...newCategories])].sort();
+          setCategories(merged);
+          addToHistory('Imported Categories (Add)', `${newCategories.length} categories from ${file.name}`);
+        }
+
+        // Clear the file input
+        event.target.value = '';
+        
+      } catch (error) {
+        alert('Error reading file: ' + error.message);
+      }
+    };
+    reader.readAsText(file);
   };
 
   const exportCSV = () => {
@@ -219,13 +358,13 @@ function App() {
             <h1 style={{ fontSize: '24px', fontWeight: 'bold', color: 'white', margin: 0 }}>WooCommerce Product Manager</h1>
             <p style={{ color: '#bfdbfe', marginTop: '4px', margin: 0 }}>Manage your products with auto-save and export to CSV for bulk import</p>
             <div style={{ marginTop: '8px', color: '#bfdbfe', fontSize: '14px' }}>
-              💾 Auto-saves to browser storage • 📊 {products.length} products stored
+              💾 Auto-saves to browser storage • 📊 {products.length} products stored • 📂 {categories.length} categories saved
             </div>
           </div>
 
           {/* Action Buttons */}
           <div style={{ padding: '16px', backgroundColor: '#f9fafb', borderBottom: '1px solid #e5e7eb' }}>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '12px' }}>
               <button
                 onClick={() => setShowHistory(!showHistory)}
                 style={{ backgroundColor: '#7c3aed', color: 'white', padding: '8px 16px', borderRadius: '6px', border: 'none', cursor: 'pointer', fontSize: '14px', display: 'flex', alignItems: 'center', gap: '8px' }}
@@ -252,6 +391,36 @@ function App() {
                   🧹 Clear History
                 </button>
               )}
+            </div>
+            
+            {/* Category Management */}
+            <div style={{ borderTop: '1px solid #d1d5db', paddingTop: '12px' }}>
+              <div style={{ fontSize: '14px', fontWeight: '500', color: '#374151', marginBottom: '8px' }}>📂 Category Management:</div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                <label style={{ backgroundColor: '#2563eb', color: 'white', padding: '8px 16px', borderRadius: '6px', cursor: 'pointer', fontSize: '14px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  📁 Import Categories
+                  <input
+                    type="file"
+                    accept=".txt"
+                    onChange={handleFileUpload}
+                    style={{ display: 'none' }}
+                  />
+                </label>
+                <button
+                  onClick={exportCategories}
+                  style={{ backgroundColor: '#0891b2', color: 'white', padding: '8px 16px', borderRadius: '6px', border: 'none', cursor: 'pointer', fontSize: '14px', display: 'flex', alignItems: 'center', gap: '8px' }}
+                >
+                  💾 Export Categories
+                </button>
+                {categories.length > 0 && (
+                  <button
+                    onClick={clearCategories}
+                    style={{ backgroundColor: '#6366f1', color: 'white', padding: '8px 16px', borderRadius: '6px', border: 'none', cursor: 'pointer', fontSize: '14px', display: 'flex', alignItems: 'center', gap: '8px' }}
+                  >
+                    📂 Clear Categories ({categories.length})
+                  </button>
+                )}
+              </div>
             </div>
           </div>
 
@@ -350,14 +519,30 @@ function App() {
 
               <div>
                 <label style={{ display: 'block', fontSize: '14px', fontWeight: '500', color: '#374151', marginBottom: '4px' }}>Categories</label>
-                <input
-                  type="text"
-                  name="categories"
-                  value={formData.categories}
-                  onChange={handleInputChange}
-                  style={{ width: '100%', padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '14px' }}
-                  placeholder="e.g., Clothing > T-Shirts"
-                />
+                <select
+                  value={categoryMode === 'select' ? formData.categories : 'custom'}
+                  onChange={handleCategoryChange}
+                  style={{ width: '100%', padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '14px', marginBottom: '8px' }}
+                >
+                  <option value="">Select a category...</option>
+                  {categories.map((category, index) => (
+                    <option key={index} value={category}>{category}</option>
+                  ))}
+                  <option value="custom">✏️ Enter custom category</option>
+                </select>
+                {categoryMode === 'custom' && (
+                  <input
+                    type="text"
+                    name="categories"
+                    value={formData.categories}
+                    onChange={handleInputChange}
+                    style={{ width: '100%', padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '14px' }}
+                    placeholder="e.g., Clothing > T-Shirts"
+                  />
+                )}
+                <div style={{ fontSize: '12px', color: '#6b7280', marginTop: '4px' }}>
+                  💡 Use ">" for subcategories (e.g., "Clothing > T-Shirts")
+                </div>
               </div>
 
               <div>
