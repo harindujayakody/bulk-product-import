@@ -1,3 +1,4 @@
+import { csvField } from './csv';
 import React, { useState, useEffect } from 'react';
 import './App.css';
 
@@ -322,16 +323,16 @@ function App() {
     const csvContent = [
       headers.join(','),
       ...products.map(product => [
-        `"${product.sku}"`,
-        `"${product.name}"`,
-        `"${product.description}"`,
-        `"${product.shortDescription}"`,
-        product.price,
-        `"${product.categories}"`,
-        `"${product.tags}"`,
-        `"${product.seoDescription}"`,
-        `"${product.focusKeyword}"`,
-        `"${product.brand}"`
+        csvField(product.sku),
+        csvField(product.name),
+        csvField(product.description),
+        csvField(product.shortDescription),
+        csvField(product.price),
+        csvField(product.categories),
+        csvField(product.tags),
+        csvField(product.seoDescription),
+        csvField(product.focusKeyword),
+        csvField(product.brand)
       ].join(','))
     ].join('\n');
 
@@ -685,3 +686,5 @@ function App() {
 }
 
 export default App;
+
+
